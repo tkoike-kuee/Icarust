@@ -21,10 +21,10 @@ impl InstanceService for Instance {
     ) -> Result<Response<instance::GetVersionInfoResponse>, Status> {
         Ok(Response::new(instance::GetVersionInfoResponse {
             minknow: Some(MinknowVersion {
-                major: 5,
-                minor: 1,
-                patch: 4,
-                full: "5.1.4".to_string(),
+                major: 6,
+                minor: 0,
+                patch: 11,
+                full: "6.0.11".to_string(), /* 5.1.4 */
             }),
             distribution_version: "unknown".to_string(),
             distribution_status: 0,

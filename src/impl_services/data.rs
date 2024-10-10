@@ -598,6 +598,7 @@ fn start_write_out_thread(
         info!("exiting write out thread");
     });
     complete_read_tx
+
 }
 
 fn start_unblock_thread(
@@ -1462,10 +1463,10 @@ impl DataServiceServicer {
                 for i in 0..channel_size {
                     let time_taken = read_process.elapsed().as_secs_f64();
                     let value = num.get_mut(i).unwrap();
-                    if value.dead {
-                        dead_pores += 1;
-                        continue;
-                    }
+                    // if value.dead {
+                    //     dead_pores += 1;
+                    //     continue;
+                    // } no dead by tkoike
                     if value.read.is_empty() {
                         empty_pores += 1;
                         if value.pause > 0.0 {
@@ -1504,9 +1505,9 @@ impl DataServiceServicer {
                                 }
                                 false => 1.0,
                             };
-                            value.dead = rng.gen_bool(
-                                potential_yolo_death.base_chance * prev_chance_multiplier,
-                            );
+                            // value.dead = rng.gen_bool(
+                            //     potential_yolo_death.base_chance * prev_chance_multiplier,
+                            // );
                         }
                         value.read.clear();
                         // shrink the vec allocation to new empty status
@@ -1515,10 +1516,10 @@ impl DataServiceServicer {
                         // Could be a slow problem here?
                         value.write_out = false;
                         // Our pore died, so sad
-                        if value.dead {
-                            dead_pores += 1;
-                            continue;
-                        }
+                        // if value.dead {
+                        //     dead_pores += 1;
+                        //     continue;
+                        // } no dead by tkoike
                         // chance to aquire a read
                         if rng.gen_bool(0.8) {
                             new_reads += 1;
@@ -1550,6 +1551,7 @@ impl DataServiceServicer {
                         break;
                     }
                 }
+
                 if dead_pores >= (0.99 * channel_size as f64) as usize {
                     *graceful_shutdown.lock().unwrap() = true;
                     break;
