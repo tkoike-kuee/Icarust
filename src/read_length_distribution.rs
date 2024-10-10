@@ -22,7 +22,10 @@ pub struct ReadLengthDist {
 
 impl ReadLengthDist {
     pub fn new(mean_read_length: f64) -> ReadLengthDist {
-        let dist = _create_skew_dist(mean_read_length, mean_read_length / 2.0_f64, 1.25, 10000.0);
+        // perfect length like dna synthesis
+        info!("Creating read length distribution with mean read length: {}nt", 400.0*mean_read_length/5000.0);
+        let dist: Vec<f64> = vec![mean_read_length; 10000];
+        // let dist = _create_skew_dist(mean_read_length, mean_read_length / 2.0_f64, 1.25, 10000.0);
         ReadLengthDist { dist }
     }
 }

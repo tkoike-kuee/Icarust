@@ -1327,9 +1327,11 @@ fn generate_read(
         .unwrap();
 
     // earliest possible start point in file, match is for amplicons so we don't start halfway through
+    // perfect starts
+
     let start: usize = match sample_info.is_amplicon {
         true => 0,
-        false => rng.gen_range(0..file_info.contig_len - 1000),
+        false => rng.geen_range(0..file_info.contig_len - 1000),
     };
     // Get our distribution from either the Sample specified Gamma or the global read length
     let read_distribution = &sample_info.read_len_dist;
