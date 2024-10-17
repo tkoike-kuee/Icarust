@@ -60,9 +60,9 @@ pub fn normalize(seq: &[u8]) -> Option<Vec<u8>> {
             // normalize gaps
             (b'.', _) | (b'~', _) => (b'-', true),
             // remove all whitespace and line endings
-            (b' ', _) | (b'\t', _) | (b'\r', _) | (b'\n', _) => (b' ', true),
+            (b' ', _) | (b'\t', _) | (b'\r', _) | (b'\n', _) => (b'', true),
             // everything else is an N
-            _ => (b' ', true),
+            _ => (b'N', true),
         };
         changed = changed || char_changed;
         if new_char != b' ' {
