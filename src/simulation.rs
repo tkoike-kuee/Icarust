@@ -94,15 +94,18 @@ pub enum KmerType {
 /// Profile for sequencing
 pub struct SimSettings {
     /// Digitisation to i16 I dunno
-    digitisation: f64,
+    // digitisation: f64, // comment out by tkoike
+    pub digitisation: f64, // add by tkoike
     /// range
-    range: f64,
+    // range: f64, //comment out by tkoike
+    pub range: f64, // add by tkoike
     /// samples_per_base
     samples_per_base: i16,
     /// kmer
     kmer_len: i16,
     /// noise
-    noise: bool,
+    // noise: bool, //comment out by tkoike
+    pub noise: bool, // add by tkoike
     /// 3to5
     reverse: bool,
     /// Simulation type
@@ -258,7 +261,8 @@ pub fn sequence_lengths<P: AsRef<Path> + std::fmt::Debug>(path: P) -> Vec<usize>
 }
 
 /// Add laplace noise to each sample for a whole signal
-fn add_laplace_noise(data: &mut [f64], scale: f64) {
+// fn add_laplace_noise(data: &mut [f64], scale: f64) { //comment out by tkoike
+pub fn add_laplace_noise(data: &mut [f64], scale: f64) { // add by tkoike
     let laplace = Laplace::new(0.0, scale);
     let mut source = source::default(42);
     let mut sampler = Independent(&laplace, &mut source);
@@ -280,7 +284,8 @@ pub fn convert_to_signal<'a>(
     kmers: &FnvHashMap<String, (f64, Option<f64>)>,
     record: &SequenceRecord,
     profile: &SimSettings,
-) -> Result<Vec<i16>, Box<dyn Error>> {
+// ) -> Result<Vec<i16>, Box<dyn Error>> { // comment out by tkoike
+) -> Result<Vec<f64>, Box<dyn Error>> { // add by tkoike
     let samples_per_base = profile.samples_per_base;
     let kmer_len = profile.kmer_len;
     let mut signal_vec: Vec<f64> =
@@ -318,13 +323,13 @@ pub fn convert_to_signal<'a>(
         }
         pb.inc(1);
     }
-    if profile.noise & (profile.sim_type == SimType::DNAR10) {
-        add_laplace_noise(&mut signal_vec, 1.0 / 2.0f64.sqrt());
-    }
-    let mut signal_vec: Vec<i16> = signal_vec
-        .iter()
-        .map(|x| ((x * profile.digitisation) / profile.range) as i16)
-        .collect();
+    // if profile.noise & (profile.sim_type == SimType::DNAR10) { // comment out by tkoike
+    //     add_laplace_noise(&mut signal_vec, 1.0 / 2.0f64.sqrt());
+    // }
+    // let mut signal_vec: Vec<i16> = signal_vec
+    //     .iter()
+    //     .map(|x| ((x * profile.digitisation) / profile.range) as i16)
+    //     .collect();
     if profile.reverse {
         signal_vec.reverse();
     }

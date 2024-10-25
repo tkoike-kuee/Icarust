@@ -74,13 +74,15 @@ struct RunSetup {
 struct FileInfo {
     contig_len: usize,
     view: Option<ArrayBase<ndarray::OwnedRepr<i16>, Dim<[usize; 1]>>>,
-    sequence: Option<Vec<i16>>,
+    // sequence: Option<Vec<i16>>, //comment out by tkoike
+    sequence: Option<Vec<f64>>, // add by tkoike
 }
 
 impl FileInfo {
     pub fn new(
         view: Option<ArrayBase<ndarray::OwnedRepr<i16>, Dim<[usize; 1]>>>,
-        sequence: Option<Vec<i16>>,
+        // sequence: Option<Vec<i16>>, //comment out by tkoike
+        sequence: Option<Vec<f64>>, // add by tkoike
     ) -> FileInfo {
         let array_len = match view {
             Some(_) => view.as_ref().unwrap().len(),
@@ -1368,6 +1370,23 @@ fn generate_read(
                 .as_ref()
                 .expect("Couldn't get my hands on that tasty tasty signal")[start..end]
                 .to_vec();
+            // ######################################################## by tkoike
+            let sim_type = match (&sample_info.nucleotide_type, &sample_info.pore_type) {
+                (NucleotideType::DNA, PoreType::R10) => SimType::DNAR10,
+                (NucleotideType::RNA, PoreType::R9) => SimType::RNAR9,
+                _ => {
+                    panic!("We shouldn't be readig sequence for R10 RNA or R9DNA");
+                }
+            };
+            let profile = simulation::get_sim_profile(sim_type);
+            if profile.noise {
+                simulation::add_laplace_noise(&mut read_squig, 1.0 / 2.0f64.sqrt());
+            }
+            let mut read_squig: Vec<i16> = read_squig
+                .iter()
+                .map(|x| ((x * profile.digitisation) / profile.range) as i16)
+                .collect();
+            // ########################################################
             if sample_info.is_barcoded {
                 read_squig.extend(barcode_2_squig);
                 // add on some end padding to see if it improves basecalling
