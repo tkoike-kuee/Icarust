@@ -264,7 +264,9 @@ pub fn sequence_lengths<P: AsRef<Path> + std::fmt::Debug>(path: P) -> Vec<usize>
 // fn add_laplace_noise(data: &mut [f64], scale: f64) { //comment out by tkoike
 pub fn add_laplace_noise(data: &mut [f64], scale: f64) { // add by tkoike
     let laplace = Laplace::new(0.0, scale);
-    let mut source = source::default(42);
+    let random_seed: u64 = rand::thread_rng().gen(); // add by tkoike
+    // let mut source = source::default(42); //comment out by tkoike
+    let mut source = source::default(random_seed); // add by tkoike
     let mut sampler = Independent(&laplace, &mut source);
     for value in data {
         let noise: f64 = sampler.next().unwrap();
