@@ -76,6 +76,7 @@ struct FileInfo {
     view: Option<ArrayBase<ndarray::OwnedRepr<i16>, Dim<[usize; 1]>>>,
     // sequence: Option<Vec<i16>>, //comment out by tkoike
     sequence: Option<Vec<f64>>, // add by tkoike
+    record_id: String, // add by tkoike
 }
 
 impl FileInfo {
@@ -83,6 +84,7 @@ impl FileInfo {
         view: Option<ArrayBase<ndarray::OwnedRepr<i16>, Dim<[usize; 1]>>>,
         // sequence: Option<Vec<i16>>, //comment out by tkoike
         sequence: Option<Vec<f64>>, // add by tkoike
+        record_id: String, // add by tkoike
     ) -> FileInfo {
         let array_len = match view {
             Some(_) => view.as_ref().unwrap().len(),
@@ -92,6 +94,7 @@ impl FileInfo {
             contig_len: array_len,
             view,
             sequence,
+            record_id, //add by tkoike
         }
     }
 }
@@ -103,10 +106,12 @@ impl fmt::Debug for FileInfo {
         Contig_length: {}
         Has Sequence: {}
         Has View: {}
+        Has Record ID: {}
         }}",
             self.contig_len,
             self.view.is_some(),
-            self.sequence.is_some()
+            self.sequence.is_some(),
+            self.record_id, //add by tkoike
         )
     }
 }
@@ -1142,14 +1147,16 @@ fn read_views_of_sequence_data(
     while let Some(record) = reader.next() {
         let per_record_now = Instant::now();
         let fasta_record = record.unwrap();
+        let record_id = String::from_utf8(fasta_record.id().to_vec()).unwrap();
         info!(
             "Converting {}",
-            String::from_utf8(fasta_record.id().to_vec()).unwrap()
+            record_id
         );
         let read_length_dist = sample_info.get_read_len_dist(global_mean_read_length, sample_rate);
         let file_info = FileInfo::new(
             None,
             Some(simulation::convert_to_signal(kmers, &fasta_record, &profile).unwrap()),
+            record_id, // add by tkoike
         );
         let sample = views
             .entry(sample_info.name.clone())
@@ -1196,7 +1203,7 @@ fn read_views_of_squiggle_data(
         ArrayView1::<i16>::view_npy(&mmap).unwrap();
     // let size = view.shape()[0];
     let read_length_dist = sample_info.get_read_len_dist(global_mean_read_length, sampling);
-    let file_info = FileInfo::new(Some(view.to_owned()), None);
+    let file_info = FileInfo::new(Some(view.to_owned()), None,sample_info.name.clone(),);
     let sample = views
         .entry(sample_info.name.clone())
         .or_insert(SampleInfo::new(
@@ -1394,6 +1401,10 @@ fn generate_read(
                 barcode_1_squig.extend(read_squig);
                 read_squig = barcode_1_squig;
             }
+            // ######################################################## by tkoike
+            info!("Sample Name: {:#?}", file_info.record_id); 
+            info!("Read ID: {:#?}", value.read_id);
+            // ########################################################
             prefix.extend(read_squig);
             prefix
             // read_squig
