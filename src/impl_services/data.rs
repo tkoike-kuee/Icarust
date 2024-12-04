@@ -1280,6 +1280,7 @@ fn setup_channel_vec(
 
 /// Generate an inital read, which is stored as a ReadInfo in the channel_read_info vec. This is mutated in place.
 fn generate_read(
+    log_path: Option<std::path::PathBuf>, // add by tkoike
     samples: &[String],
     value: &mut ReadInfo,
     dist: &WeightedIndex<usize>,
@@ -1402,6 +1403,7 @@ fn generate_read(
                 read_squig = barcode_1_squig;
             }
             // ######################################################## by tkoike
+            info!("log path: {:#?}", log_path);
             info!("Sample Name: {:#?}", file_info.record_id); 
             info!("Read ID: {:#?}", value.read_id);
             // ########################################################
@@ -1433,6 +1435,7 @@ impl DataServiceServicer {
         run_id: String,
         cli_opts: Cli,
         output_path: PathBuf,
+        log_path: Option<PathBuf>, // add by tkoike
         channel_size: usize,
         graceful_shutdown: Arc<Mutex<bool>>,
     ) -> DataServiceServicer {
@@ -1557,6 +1560,7 @@ impl DataServiceServicer {
                             new_reads += 1;
                             read_number += 1;
                             generate_read(
+                                log_path.clone(), // add by tkoike
                                 &files,
                                 value,
                                 &dist,

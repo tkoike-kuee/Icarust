@@ -90,6 +90,7 @@ struct Config {
     working_pore_percent: Option<usize>,
     nucleotide_type: Option<String>,
     pore_type: Option<String>,
+    log_path: Option<std::path::PathBuf>, //add by tkoike
 }
 
 impl Config {
@@ -124,6 +125,7 @@ impl Config {
             None => NucleotideType::DNA,
         }
     }
+
     /// Calculate the chance a pore will die.
     pub fn calculate_death_chance(&self, starting_channels: usize) -> HashMap<String, DeathChance> {
         let target_yield = &self.target_yield;
@@ -313,6 +315,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let flowcell_id = config.parameters.flowcell_name.clone();
     let experiment_duration = config.parameters.experiment_duration_set;
     let start_time = Utc::now();
+    let log_path = config.log_path; //add by tkoike
     let mut output_path = output_dir.clone();
     output_path.push(experiment_id);
     output_path.push(sample_id);
@@ -377,6 +380,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         run_id.clone(),
         args,
         output_path.clone(),
+        log_path.clone(), // add by tkoike
         channel_size,
         graceful_shutdown_clone,
     ));
