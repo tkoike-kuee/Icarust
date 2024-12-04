@@ -13,3 +13,4 @@ basecall_test.py
 *.tensor
 *.bam
 *config.toml
+.*
