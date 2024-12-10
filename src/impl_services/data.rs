@@ -7,7 +7,7 @@
 //! The thread shares data with the get_live_reads function through a ARC<Mutex<Vec>>>
 //!
 //!
-//!
+//!!!
 //!
 //!
 //!
@@ -20,7 +20,7 @@ use podders::Pod5File;
 use std::cmp::{self, min};
 use std::collections::HashMap;
 use std::fmt;
-use std::fs::{create_dir_all, read_to_string, DirEntry, File};
+use std::fs::{create_dir_all, read_to_string, DirEntry, File, OpenOptions, metadata}; //# add OpenOptions and metadata by tkoike
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -60,6 +60,9 @@ use crate::simulation::{KmerType, SimType};
 use crate::PoreType;
 use crate::{simulation, NucleotideType};
 use crate::{Config, Sample, _load_toml};
+//########################################################### by tkoike
+use csv::WriterBuilder;
+//###########################################################
 
 /// unused
 #[derive(Debug)]
@@ -1383,7 +1386,7 @@ fn generate_read(
                 (NucleotideType::DNA, PoreType::R10) => SimType::DNAR10,
                 (NucleotideType::RNA, PoreType::R9) => SimType::RNAR9,
                 _ => {
-                    panic!("We shouldn't be readig sequence for R10 RNA or R9DNA");
+                    panic!("We shouldn't be reading sequence for R10 RNA or R9DNA");
                 }
             };
             let profile = simulation::get_sim_profile(sim_type);
@@ -1403,9 +1406,15 @@ fn generate_read(
                 read_squig = barcode_1_squig;
             }
             // ######################################################## by tkoike
-            info!("log path: {:#?}", log_path);
-            info!("Sample Name: {:#?}", file_info.record_id); 
-            info!("Read ID: {:#?}", value.read_id);
+            if let Some(log_path) = log_path {
+                let file = OpenOptions::new().write(true).append(true).create(true).open(log_path.clone()).unwrap();
+                let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file);
+                if metadata(log_path).expect("Failed to get metadata").len() == 0{
+                    wtr.write_record(&["sample_name", "read_id"]).unwrap();
+                }
+                wtr.write_record(&[&file_info.record_id, &value.read_id]).unwrap();
+                wtr.flush().unwrap();
+            }
             // ########################################################
             prefix.extend(read_squig);
             prefix

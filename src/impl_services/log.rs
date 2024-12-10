@@ -3,6 +3,9 @@
 
 use crate::services::minknow_api::log::log_service_server::LogService;
 use crate::services::minknow_api::log::{SendUserMessageRequest, SendUserMessageResponse};
+// ######################################## add by tkoike
+use std::fs::File; 
+use std::ffi::OsString;
 
 use tonic::{Request, Response, Status};
 
