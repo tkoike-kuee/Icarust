@@ -41,6 +41,7 @@ use ndarray_npy::{read_npy, ReadNpyError, ViewNpyExt};
 use rand::distributions::WeightedIndex;
 use rand::prelude::*;
 use rand_distr::{Distribution, SkewNormal};
+use rayon::prelude::*; // add by tkoike
 use serde::Deserialize;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -203,7 +204,7 @@ pub struct DataServiceServicer {
     setup: Arc<Mutex<RunSetup>>,
     break_chunks_ms: u64,
     channel_size: usize,
-    sampling: u64,
+    sample_rate_hz: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -427,8 +428,8 @@ fn start_write_out_thread(
                 Some(RunInfoData {
                     acquisition_id: run_id.clone(),
                     acquisition_start_time: 1625097600000,
-                    adc_max: 32767,
-                    adc_min: -32768,
+                    adc_max: 2047,
+                    adc_min: 0,
                     context_tags: context_tags
                         .iter()
                         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -535,8 +536,8 @@ fn start_write_out_thread(
                             ]);
                             let channel_info = ChannelInfo::new(
                                 2048_f64,
-                                0.0,
-                                200.0,
+                                -243.0,
+                                2048.0 * 0.1462070643901825,
                                 config.parameters.get_sample_rate() as f64,
                                 to_write_info.channel_number.clone(),
                             );
@@ -558,18 +559,21 @@ fn start_write_out_thread(
                             } else {
                                 EndReason::SIGNAL_POSITIVE
                             };
-                            let pt = match ic_pt {
-                                PoreType::R9 => PodPoreType::R9,
-                                PoreType::R10 => PodPoreType::R10,
-                            };
+                            // Apparently, MinKNOW doesn't set this - or specifically it is set to
+                            // not-set, so we will match that.
+                            // let pt = match ic_pt {
+                            //     PoreType::R9 => PodPoreType::R9,
+                            //     PoreType::R10 => PodPoreType::R10,
+                            // };
+                            let pt = PodPoreType::NotSet;
                             let read: PodReadInfo = PodReadInfo {
                                 read_id: Uuid::parse_str(to_write_info.read_id.as_str()).unwrap(),
                                 pore_type: pt,
                                 signal_: signal,
                                 channel: to_write_info.channel as u16,
                                 well: 1,
-                                calibration_offset: -264.0,
-                                calibration_scale: 0.187_069_85,
+                                calibration_offset: -243.0,
+                                calibration_scale: 0.14620706,
                                 read_number: to_write_info.read_number,
                                 start: 1,
                                 median_before: 100.0,
@@ -943,6 +947,7 @@ fn process_samples_from_config(
                         sample,
                         kmers.as_ref().unwrap(),
                         config.parameters.get_sample_rate(),
+                        config.parameters.get_sequencing_speed(),
                         config.check_pore_type(),
                         config.check_dna_or_rna(),
                     );
@@ -1002,6 +1007,7 @@ fn process_samples_from_config(
                     sample,
                     kmers.as_ref().unwrap(),
                     config.parameters.get_sample_rate(),
+                    config.parameters.get_sequencing_speed(),
                     config.check_pore_type(),
                     config.check_dna_or_rna(),
                 );
@@ -1124,6 +1130,7 @@ fn read_views_of_sequence_data(
     sample_info: &Sample,
     kmers: &HashMap<String, (f64, Option<f64>), std::hash::BuildHasherDefault<fnv::FnvHasher>>,
     sample_rate: u64,
+    sequencing_speed: usize,
     pore_type: PoreType,
     nucleotide_type: NucleotideType,
 ) {
@@ -1147,6 +1154,7 @@ fn read_views_of_sequence_data(
         parse_fastx_file(file_path).expect("Can't find FASTA file at {file_path}");
     let now = Instant::now();
     let mut done = 0;
+    let samples_per_base = sample_rate as usize / sequencing_speed;
     while let Some(record) = reader.next() {
         let per_record_now = Instant::now();
         let fasta_record = record.unwrap();
@@ -1158,7 +1166,7 @@ fn read_views_of_sequence_data(
         let read_length_dist = sample_info.get_read_len_dist(global_mean_read_length, sample_rate);
         let file_info = FileInfo::new(
             None,
-            Some(simulation::convert_to_signal(kmers, &fasta_record, &profile).unwrap()),
+            Some(simulation::convert_to_signal(kmers, &fasta_record, &profile, samples_per_base).unwrap()),
             record_id, // add by tkoike
         );
         let sample = views
@@ -1308,7 +1316,7 @@ fn generate_read(
     value.start_time_utc = Utc::now();
     value.read_number = *read_number;
     let sample_choice: &String = &samples[dist.sample(rng)];
-    value.read_sample_name = sample_choice.clone();
+    value.read_sample_name.clone_from(sample_choice);
     let sample_info: &SampleInfo = &views[sample_choice];
     // choose a barcode if we need to - else we always use the first distirbution in the vec
     let mut file_weight_choice: usize = 0;
@@ -1394,8 +1402,8 @@ fn generate_read(
                 simulation::add_laplace_noise(&mut read_squig, 1.0 / 2.0f64.sqrt());
             }
             let mut read_squig: Vec<i16> = read_squig
-                .iter()
-                .map(|x| ((x * profile.digitisation) / profile.range) as i16)
+                .par_iter_mut()
+                .map(|x| ((*x / profile.scale) - profile.offset) as i16)
                 .collect();
             // ########################################################
             if sample_info.is_barcoded {
@@ -1453,7 +1461,7 @@ impl DataServiceServicer {
 
         let working_pore_percent = config.get_working_pore_precent();
         let break_chunks_ms: u64 = config.parameters.get_chunk_size_ms();
-        let sampling: u64 = config.parameters.get_sample_rate();
+        let sample_rate_hz: u64 = config.parameters.get_sample_rate();
         let start_time: u64 = Utc::now().timestamp() as u64;
         let barcode_squig = create_barcode_squig_hashmap(&config);
         info!("Barcodes available {:#?}", barcode_squig.keys());
@@ -1482,6 +1490,7 @@ impl DataServiceServicer {
         // start the thread to generate data
         thread::spawn(move || {
             let r: ReacquisitionPoisson = ReacquisitionPoisson::new(1.0, 0.0, 0.0001, 0.05);
+            let _experiment_duration = config.parameters.experiment_duration_set;
 
             // read number for adding to unblock
             let mut read_number: u32 = 0;
@@ -1489,8 +1498,21 @@ impl DataServiceServicer {
 
             // Infinte loop for data generation
             loop {
+                if let Some(_experiment_duration) = _experiment_duration {
+                    // The experiment length in minutes
+                    let minutes_since_start = (Utc::now().timestamp() as u64 - start_time) / 60;
+                    if std::convert::TryInto::<usize>::try_into(minutes_since_start).unwrap()
+                        > _experiment_duration
+                    {
+                        info!("Reached experiment duration, stopping...");
+                        {
+                            *graceful_shutdown.lock().unwrap() = true;
+                        }
+                        break;
+                    }
+                }
                 let read_process = Instant::now();
-                debug!("Sequencer mock loop start");
+                // debug!("Sequencer mock loop start");
                 let mut new_reads = 0;
                 let mut dead_pores = 0;
                 let mut empty_pores = 0;
@@ -1565,7 +1587,7 @@ impl DataServiceServicer {
                         //     continue;
                         // } no dead by tkoike
                         // chance to aquire a read
-                        if rng.gen_bool(0.8) {
+                        if rng.gen_bool(0.75) {
                             new_reads += 1;
                             read_number += 1;
                             generate_read(
@@ -1578,7 +1600,7 @@ impl DataServiceServicer {
                                 &mut read_number,
                                 &start_time,
                                 &barcode_squig,
-                                sampling,
+                                sample_rate_hz,
                             )
                         }
                     }
@@ -1602,6 +1624,8 @@ impl DataServiceServicer {
                     break;
                 }
             }
+            std::thread::sleep(Duration::from_secs(10));
+            std::process::exit(0);
         });
         // return our newly initialised DataServiceServicer to add onto the GRPC server
         DataServiceServicer {
@@ -1610,7 +1634,7 @@ impl DataServiceServicer {
             setup: is_safe_setup,
             break_chunks_ms,
             channel_size,
-            sampling,
+            sample_rate_hz,
         }
     }
 }
@@ -1634,8 +1658,8 @@ impl DataService for DataServiceServicer {
         let channel_size = self.channel_size;
         let mut stream_counter = 1;
         let break_chunk_ms = self.break_chunks_ms;
-        let sampling = self.sampling;
-        let chunk_size = break_chunk_ms as f64 / 1000.0 * sampling as f64;
+        let sample_rate_hz = self.sample_rate_hz;
+        // let chunk_size = break_chunk_ms as f64 / 1000.0 * sample_rate_hz as f64;
 
         // Stream the responses back
         let output = async_stream::try_stream! {
@@ -1664,8 +1688,8 @@ impl DataService for DataServiceServicer {
                     let mut channel: u32 = 1;
                     let mut num_reads_stop_receiving: usize = 0;
                     let mut num_channels_empty: usize = 0;
-                    // max read len in samples that we will consider sending samples for
-                    let max_read_len_samples: usize = 30000;
+                    // max read len in samples that we will consider sending samples for, 3 seconds worth of data
+                    let max_read_len_samples: usize = 3 * sample_rate_hz as usize;
 
                     // calculate number of samples to slice - roughly the time we break reads * 4000, so for the default 0.4 seconds
                     // we serve 0.4 * 4000 (1600) samples
@@ -1683,40 +1707,32 @@ impl DataService for DataServiceServicer {
                         // Iterate over each channel
                         for i in 0..channel_size {
                             let mut read_info = read_data_vec.get_mut(i).unwrap();
-                            debug!("Elapsed at start of drain {}", now2.elapsed().as_millis());
+                            // debug!("Elapsed at start of drain {}", now2.elapsed().as_millis());
                             if !read_info.stop_receiving && !read_info.was_unblocked && read_info.read.len() > 0 {
                                 // work out where to start and stop our slice of signal
-                                let mut start = read_info.prev_chunk_start;
+                                let mut start: usize = read_info.prev_chunk_start;
                                 let now_time = Utc::now();
-                                let read_start_time = read_info.start_time_utc;
-                                let elapsed_time = now_time.time() - read_start_time.time();
+                                let previous_access_time = read_info.time_accessed;
+                                let elapsed_time = now_time.time() - previous_access_time.time();
                                 // How far through the read we are in total samples
-                                let mut stop = convert_milliseconds_to_samples(elapsed_time.num_milliseconds(), sampling);
+                                // Convert sample_rate_hz into microseconds
+                                let chunk_to_serve_length: usize = ((sample_rate_hz as f64 / 1_000_000_f64)  * elapsed_time.num_microseconds().unwrap() as f64) as usize;
+                                let stop = start + chunk_to_serve_length as usize;
+                                debug!("elasped: {elapsed_time}, start {start}, length {chunk_to_serve_length}, stop: {stop}");
+                                // let mut stop = convert_milliseconds_to_samples(elapsed_time.num_milliseconds(), sampling);
                                 // slice of signal is too short
-                                if start > stop || (stop - start) < chunk_size as usize {
+                                if start > stop || (stop - start) < chunk_to_serve_length as usize {
                                     continue
                                 }
 
                                 // Read through pore is too long ( roughly longer than 4.5kb worth of bases through pore
-                                if stop > max_read_len_samples {
+                                if chunk_to_serve_length > max_read_len_samples {
+                                    debug!("Skipping read as {chunk_to_serve_length} is greater than maximum allowed value {max_read_len_samples}");
                                     continue
-                                }
-
-                                // only send last chunks worth of data
-                                if  (stop - start) > (chunk_size as f64 * 1.1_f64) as usize {
-                                    // Work out where a break_reads size finishes
-                                    // i.e if we have gotten 1.5 chunks worth since last time, that is not actually possible on a real sequencer.
-                                    // So we need to calculate where the 1 chunk finishes and set that as the prev_chunk_stop and serve it
-                                    let full_width = stop - start;
-                                    let chunks_in_width = full_width.div_euclid(chunk_size as usize);
-                                    stop = chunk_size as usize * chunks_in_width;
-                                    start = stop - chunk_size as usize;
-                                    if start > read_info.read.len() {
-                                        start = read_info.read.len() - 1000;
-                                    }
                                 }
                                 // CHeck start is not past end
                                 if start > read_info.read.len() {
+                                    warn!("Skipping as start {start} is greater than read signal lenth {}", read_info.read.len());
                                     continue
                                 }
 

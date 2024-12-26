@@ -29,6 +29,7 @@ use chrono::prelude::*;
 use clap::Parser;
 use configparser::ini::Ini;
 use serde::Deserialize;
+use simulation::SimType;
 use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
@@ -207,6 +208,8 @@ struct Parameters {
     break_read_ms: Option<u64>,
     /// The sample rate in Hz - one of 4000 or 5000. Only used for RNA R9 and DNA R10
     sample_rate: Option<u64>,
+    /// The sequencing speed is an absolute banger
+    sequencing_speed: Option<usize>,
 }
 
 impl Parameters {
@@ -214,12 +217,15 @@ impl Parameters {
     pub fn get_chunk_size_ms(&self) -> u64 {
         self.break_read_ms.unwrap_or(400)
     }
-}
 
-impl Parameters {
     /// Return the sample rate (hz) of the signal in pores. If not specified, returns 4000.
     pub fn get_sample_rate(&self) -> u64 {
         self.sample_rate.unwrap_or(4000)
+    }
+
+    /// Return the sample rate (hz) of the signal in pores. If not specified, returns 4000.
+    pub fn get_sequencing_speed(&self) -> usize {
+        self.sequencing_speed.unwrap_or(400)
     }
 }
 
@@ -313,9 +319,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output_dir = config.output_path.clone();
     let start_time_string: String = format!("{}", Utc::now().format("%Y%m%d_%H%M"));
     let flowcell_id = config.parameters.flowcell_name.clone();
-    let experiment_duration = config.parameters.experiment_duration_set;
-    let start_time = Utc::now();
-    let log_path = config.log_path; //add by tkoike
+    let _experiment_duration = config.parameters.experiment_duration_set;
+    let _start_time = Utc::now();
+    let log_path = config.log_path.clone(); //add by tkoike
     let mut output_path = output_dir.clone();
     output_path.push(experiment_id);
     output_path.push(sample_id);
@@ -332,6 +338,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Error reading channel size from config.ini.")
         .try_into()
         .unwrap();
+
+    let sample_rate = config.parameters.sample_rate.unwrap_or(5000) as u32;
+
+    let sim_type = match (config.check_dna_or_rna(), config.check_pore_type()) {
+        (NucleotideType::DNA, PoreType::R10) => SimType::DNAR10,
+        (NucleotideType::RNA, PoreType::R9) => SimType::RNAR9,
+        _ => {
+            panic!("We shouldn't be readig sequence for R10 RNA or R9DNA");
+        }
+    };
+    let profile = simulation::get_sim_profile(sim_type);
+    let digitisation = profile.digitisation;
+    let range = profile.range as f32;
+    let offset = profile.offset as f32;
+    let scale = profile.scale as f32;
     // Create the manager server and add the service to it
     let manager_init = Manager {
         positions: vec![FlowCellPosition {
@@ -368,7 +389,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let log_svc = LogServiceServer::new(Log {});
     let instance_svc = InstanceServiceServer::new(Instance {});
     let analysis_svc = AnalysisConfigurationServiceServer::new(Analysis {});
-    let device_svc = DeviceServiceServer::new(Device::new(channel_size));
+    let device_svc = DeviceServiceServer::new(Device::new(
+        channel_size,
+        sample_rate,
+        offset,
+        range,
+        digitisation,
+    ));
     let acquisition_svc = AcquisitionServiceServer::new(Acquisition {
         run_id: run_id.clone(),
     });

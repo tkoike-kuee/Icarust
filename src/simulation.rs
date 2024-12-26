@@ -18,6 +18,7 @@ use probability::prelude::*;
 use rand::prelude::*;
 use rand::seq::SliceRandom;
 use rand_distr::Normal;
+use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
@@ -94,11 +95,13 @@ pub enum KmerType {
 /// Profile for sequencing
 pub struct SimSettings {
     /// Digitisation to i16 I dunno
-    // digitisation: f64, // comment out by tkoike
-    pub digitisation: f64, // add by tkoike
+    pub digitisation: u32,
     /// range
-    // range: f64, //comment out by tkoike
-    pub range: f64, // add by tkoike
+    pub range: f64,
+    /// scale
+    pub scale: f64,
+    /// offset
+    pub offset: f64,
     /// samples_per_base
     samples_per_base: i16,
     /// kmer
@@ -131,17 +134,21 @@ const RANDOM_CHARS: [char; 4] = ['A', 'C', 'G', 'T'];
 pub fn get_sim_profile(sim_type: SimType) -> SimSettings {
     match sim_type {
         SimType::DNAR10 => SimSettings {
-            digitisation: 2048.0,
-            range: 200.0,
-            samples_per_base: 10,
+            digitisation: 2048,
+            scale: 0.1462070643901825,
+            range: 2048.0 * 0.1462070643901825, // Digitisation * scale
+            offset: -243.0,
+            samples_per_base: 12,
             kmer_len: 9,
             noise: true,
             reverse: false,
             sim_type: SimType::DNAR10,
         },
         SimType::RNAR9 => SimSettings {
-            digitisation: 2048.0,
-            range: 200.0,
+            digitisation: 8192,
+            scale: 1.0,
+            range: 1158.63,
+            offset: 0.0,
             samples_per_base: 43,
             kmer_len: 5,
             noise: true,
@@ -154,7 +161,7 @@ pub fn get_sim_profile(sim_type: SimType) -> SimSettings {
     }
 }
 
-///
+///is it an RNA read
 pub fn get_is_rna(sim_type: SimType) -> bool {
     matches!(sim_type, SimType::RNAR9)
 }
@@ -220,7 +227,7 @@ pub fn generate_prefix() -> Result<Vec<i16>, Box<dyn Error>> {
 /// Replace all occurences of a character in a string with a randomly chosen A,C,G, or T.
 ///  Used to remove Ns from reference.
 /// If char to replace is None, We actually replace anything that is not a base
-fn replace_char_with_base(string: &str, char_to_replace: Option<char>) -> String {
+fn replace_char_with_base(string: &str, _char_to_replace: Option<char>) -> String {
     let mut rng: rand::rngs::ThreadRng = rand::thread_rng();
 
     let replaced_string: String = string
@@ -261,7 +268,6 @@ pub fn sequence_lengths<P: AsRef<Path> + std::fmt::Debug>(path: P) -> Vec<usize>
 }
 
 /// Add laplace noise to each sample for a whole signal
-// fn add_laplace_noise(data: &mut [f64], scale: f64) { //comment out by tkoike
 pub fn add_laplace_noise(data: &mut [f64], scale: f64) { // add by tkoike
     let laplace = Laplace::new(0.0, scale);
     let random_seed: u64 = rand::thread_rng().gen(); // add by tkoike
@@ -273,6 +279,13 @@ pub fn add_laplace_noise(data: &mut [f64], scale: f64) { // add by tkoike
         *value += noise;
     }
 }
+// pub fn add_laplace_noise<'a>( // comment out by tkoike
+//     data: &mut f64,
+//     sampler: &mut Independent<&'a Laplace, &'a mut source::Default>,
+// ) {
+//     let noise: f64 = sampler.next().unwrap();
+//     *data += noise;
+// }
 
 /// Add Gaussian noise to each sample individual, for RNA
 fn add_gaussian_noise(value: &mut f64, std_dev: f64, rng: &mut StdRng) {
@@ -286,12 +299,11 @@ pub fn convert_to_signal<'a>(
     kmers: &FnvHashMap<String, (f64, Option<f64>)>,
     record: &SequenceRecord,
     profile: &SimSettings,
+    samples_per_base: usize,
 // ) -> Result<Vec<i16>, Box<dyn Error>> { // comment out by tkoike
 ) -> Result<Vec<f64>, Box<dyn Error>> { // add by tkoike
-    let samples_per_base = profile.samples_per_base;
     let kmer_len = profile.kmer_len;
-    let mut signal_vec: Vec<f64> =
-        Vec::with_capacity(record.num_bases() * samples_per_base as usize);
+    let mut signal_vec: Vec<f64> = Vec::with_capacity(record.num_bases() * samples_per_base);
     let r: Cow<'a, [u8]> = normalize(record.sequence()).unwrap().into();
     let num_kmers: usize = r.len() - (kmer_len as usize);
     let sty = ProgressStyle::with_template(
@@ -301,7 +313,12 @@ pub fn convert_to_signal<'a>(
     .progress_chars("##-");
     let pb: ProgressBar = ProgressBar::new(num_kmers.try_into().unwrap());
     pb.set_style(sty);
+    // let laplace: Laplace = Laplace::new(0.0, 1.0 / 2.0f64.sqrt());
+    // let mut source = source::default(42);
+    // let mut sampler: Independent<&Laplace, &mut source::Default> =
+    //     Independent(&laplace, &mut source);
     let mut rng = StdRng::seed_from_u64(123);
+    info!("samples per base {samples_per_base} {}", signal_vec.len());
 
     for kmer in r.kmers(kmer_len as u8) {
         let mut kmer = String::from_utf8(kmer.to_vec()).unwrap();
@@ -321,25 +338,24 @@ pub fn convert_to_signal<'a>(
             if profile.noise & (profile.sim_type == SimType::RNAR9) {
                 add_gaussian_noise(&mut x, value.1.unwrap(), &mut rng)
             }
+            // if profile.noise & (profile.sim_type == SimType::DNAR10) {
+            //     add_laplace_noise(&mut x, &mut sampler);
+            // } comment out by tkoike
             signal_vec.push(x);
         }
         pb.inc(1);
     }
-    // if profile.noise & (profile.sim_type == SimType::DNAR10) { // comment out by tkoike
-    //     add_laplace_noise(&mut signal_vec, 1.0 / 2.0f64.sqrt());
-    // }
+
     // let mut signal_vec: Vec<i16> = signal_vec
-    //     .iter()
-    //     .map(|x| ((x * profile.digitisation) / profile.range) as i16)
+    //     .par_iter_mut()
+    //     .map(|x| ((*x / profile.scale) - profile.offset) as i16)
     //     .collect();
+    signal_vec.shrink_to_fit();
+
     if profile.reverse {
         signal_vec.reverse();
     }
+    info!("samples per base {samples_per_base} {}", signal_vec.len());
     pb.finish_with_message("done");
     Ok(signal_vec)
 }
-
-// read_tag, u32
-// read_id
-// raw_data
-// daq_offset

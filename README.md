@@ -17,13 +17,15 @@ MacOS runs docker volumes through virtualisation, rather than on the underlying 
 ## Quick start for developers
 #### Dependencies
 
-In order to build `tonic` >= 0.8.0, you need the `protoc` Protocol Buffers compiler, along with Protocol Buffers resource files.
+In order to build `tonic` >= 0.8.0, you need the `protoc` Protocol Buffers compiler, along with Protocol Buffers resource files. `libhdf5` is required for FAST5 support.
+
+The `protoc` version required is `>3.6.1`. The APT version on Ubuntu 20.04 is `3.6.1` which will likely throw this error - `error: "protoc failed: Unknown flag: --experimental_allow_proto3_optional\n"`. Please this [issue](https://github.com/LooseLab/Icarust/issues/2#issuecomment-1754836165) for a work around.
 
 #### Ubuntu
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y protobuf-compiler libprotobuf-dev
+sudo apt install -y protobuf-compiler libprotobuf-dev libhdf5-dev
 ```
 
 #### TLS - READ IF RUNNING WITH READFISH!
@@ -131,6 +133,8 @@ The parameters are applied to the "sequencer". They are used to setup the GRPC s
 | position | string  | True | Position name. This has to match what readfish is looking for. |
 | break_read_ms | int | False | How many milliseconds to chunk reads into. Default 400. |
 | sample_rate | int | False | Sample rate in Hz. Default [4000]. Suggest 3000 for RNA, 4000 or 5000 for DNA otherwise Dorado will throw a Hissy fit. |
+| sequencing_speed| int | False | The rate as which bases pass through the pore. Defaults to 400 |
+| experiment_duration_set | int | False | Time in minutes to run the experiment for. |
 
 
 ### Sample
