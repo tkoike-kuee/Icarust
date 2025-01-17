@@ -92,6 +92,7 @@ struct Config {
     nucleotide_type: Option<String>,
     pore_type: Option<String>,
     log_path: Option<std::path::PathBuf>, //add by tkoike
+    total_reads: Option<u64>, // add by tkoike
 }
 
 impl Config {
@@ -168,6 +169,13 @@ impl Config {
         match self.random_seed {
             Some(seed) => seed,
             None => rand::random::<u64>(),
+        }
+    }
+
+    pub fn get_total_reads(&self) -> u64 {
+        match self.total_reads {
+            Some(total_reads) => total_reads,
+            None => 10000000,
         }
     }
 

@@ -418,6 +418,7 @@ fn start_write_out_thread(
         let mut read_numbers_seen: FnvHashSet<String> =
             FnvHashSet::with_capacity_and_hasher(4000, Default::default());
         let mut file_counter = 0;
+        let mut read_counter:u64 = 0; // add by tkoike
         let output_dir = PathBuf::from(format!("{}/fast5_pass/", output_path.display()));
         if !output_dir.exists() {
             create_ouput_dir(&output_dir).unwrap();
@@ -508,6 +509,7 @@ fn start_write_out_thread(
                     debug!("{to_write_info:#?}");
                     if signal.is_empty() {
                         error!("Attempt to write empty signal");
+                        read_numbers_seen.take(&to_write_info.read_id.clone());
                         continue;
                     };
 
@@ -600,7 +602,15 @@ fn start_write_out_thread(
                     pod5.write_footer();
                 };
                 file_counter += 1;
+                read_counter += read_numbers_seen.len() as u64; // add by tkoike
                 read_numbers_seen.clear();
+                info!("Total reads: {}", read_counter); 
+                // #################### add by tkoike
+                if read_counter >= config.get_total_reads() {
+                    info!("Total reads: {}.\n Shutdown...", read_counter);
+                    *write_out_gracefully.lock().unwrap() = true;
+                }
+                // ####################
             }
             {
                 if *write_out_gracefully.lock().unwrap() {
@@ -751,6 +761,9 @@ fn unblock_reads(
         // if we are dealing with a new read, set the new read num as the last dealt with read num ath this channel number
         channel_num_to_read_num[channel_number] = read_num;
     };
+    if value.was_unblocked {
+        debug!("Unblock, the second time");
+    }
     // set the was unblocked field for writing out
     value.was_unblocked = true;
     value.write_out = true;
